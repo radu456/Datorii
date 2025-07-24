@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Datorii</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8f8f8;
+    }
+    header {
+      background: #333;
+      color: #fff;
+      padding: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .total {
+      font-size: 18px;
+    }
+    .menu-btn {
+      background: #555;
+      border: none;
+      color: white;
+      font-size: 18px;
+      padding: 5px 10px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .menu {
+      display: none;
+      background: #eee;
+      padding: 10px;
+      border-top: 1px solid #ccc;
+    }
+    .menu button {
+      display: block;
+      width: 100%;
+      margin: 5px 0;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .input-container {
+      padding: 15px;
+    }
+    input[type=number] {
+      width: 100%;
+      font-size: 24px;
+      padding: 10px;
+      border: 2px solid #aaa;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+    .list {
+      padding: 10px 15px;
+    }
+    .entry {
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      margin: 5px 0;
+      padding: 10px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="total">Total: <span id="total">0</span> RON</div>
+    <button class="menu-btn" onclick="toggleMenu()">☰</button>
+  </header>
+  <div class="menu" id="menu">
+    <button onclick="resetAll()">🔄 Plătit (Resetează tot)</button>
+    <button onclick="deleteLast()">🗑️ Șterge ultima datorie</button>
+  </div>
+  <div class="input-container">
+    <input id="amountInput" type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Introdu suma datoriei" autofocus />
+  </div>
+  <div class="list" id="list"></div>
+
+  <script>
+    let datorii = JSON.parse(localStorage.getItem("datorii")) || [];
+
+    function updateUI() {
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+      let total = 0;
+      datorii.forEach((valoare) => {
+        const entry = document.createElement("div");
+        entry.className = "entry";
+        entry.innerText = `${valoare} RON`;  // ✅ Doar suma, fără # și fără numerotare
+        list.appendChild(entry);
+        total += valoare;
+      });
+      document.getElementById("total").innerText = total;
+    }
+
+    document.getElementById("amountInput").addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val) && val > 0) {
+          datorii.push(val);
+          localStorage.setItem("datorii", JSON.stringify(datorii));
+          e.target.value = "";
+          updateUI();
+          hideKeyboard();
+        }
+      }
+    });
+
+    function hideKeyboard() {
+      document.activeElement.blur();
+    }
+
+    function resetAll() {
+      datorii = [];
+      localStorage.setItem("datorii", JSON.stringify(datorii));
+      updateUI();
+    }
+
+    function deleteLast() {
+      datorii.pop();
+      localStorage.setItem("datorii", JSON.stringify(datorii));
+      updateUI();
+    }
+
+    function toggleMenu() {
+      const menu = document.getElementById("menu");
+      menu.style.display = menu.style.display === "block" ? "none" : "block";
+    }
+
+    window.onload = () => {
+      updateUI();
+      const input = document.getElementById("amountInput");
+      setTimeout(() => input.focus(), 100);
+    }
+  </script>
+</body>
+</html>
