@@ -1,0 +1,31 @@
+{
+  "name": "Datorii",
+  "short_name": "Datorii",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8f8f8",
+  "theme_color": "#f44336",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
