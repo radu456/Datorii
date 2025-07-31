@@ -23,6 +23,16 @@
     .total {
       font-size: 18px;
     }
+    .sync-info {
+      font-size: 14px;
+      margin-top: 5px;
+    }
+    .sync-positive {
+      color: #4CAF50;
+    }
+    .sync-negative {
+      color: #f44336;
+    }
     .menu-btn {
       background: #555;
       border: none;
@@ -72,11 +82,30 @@
       border-color: #f44336;
       color: #d32f2f;
     }
+    .status {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: #333;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    .status.online {
+      background: #4CAF50;
+    }
+    .status.offline {
+      background: #f44336;
+    }
   </style>
 </head>
 <body>
   <header>
-    <div class="total">Total: <span id="total">0</span> RON</div>
+    <div>
+      <div class="total">Total: <span id="total">0</span> RON</div>
+      <div class="sync-info" id="syncInfo"></div>
+    </div>
     <button class="menu-btn" onclick="toggleMenu()">☰</button>
   </header>
   <div class="menu" id="menu">
@@ -87,14 +116,66 @@
     <input id="amountInput" type="text" inputmode="numeric" placeholder="Introdu suma datoriei" autofocus />
   </div>
   <div class="list" id="list"></div>
+  <div class="status" id="status">Offline</div>
 
   <script>
-    let datorii = JSON.parse(localStorage.getItem("datorii")) || [];
+    const API_BASE_URL = 'http://localhost:5001/api';
+    let datorii = [];
+    let isOnline = false;
 
-    function updateUI() {
+    async function checkConnection() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/totals`);
+        if (response.ok) {
+          isOnline = true;
+          document.getElementById('status').textContent = 'Online';
+          document.getElementById('status').className = 'status online';
+          return true;
+        }
+      } catch (error) {
+        console.log('Server offline, using local storage');
+      }
+      
+      isOnline = false;
+      document.getElementById('status').textContent = 'Offline';
+      document.getElementById('status').className = 'status offline';
+      return false;
+    }
+
+    async function updateUI() {
       const list = document.getElementById("list");
       list.innerHTML = "";
       let total = 0;
+      let totalCosturi = 0;
+      
+      if (await checkConnection()) {
+        // Online - get data from server
+        try {
+          const response = await fetch(`${API_BASE_URL}/datorii`);
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data = await response.json();
+          datorii = data;
+          
+          // Get sync info
+          const totalsResponse = await fetch(`${API_BASE_URL}/totals`);
+          if (totalsResponse.ok) {
+            const totalsData = await totalsResponse.json();
+            totalCosturi = totalsData.total_costuri;
+            updateSyncInfo(totalCosturi);
+          }
+        } catch (error) {
+          console.error("Eroare la preluarea datoriilor:", error);
+          // Fallback to local storage
+          datorii = JSON.parse(localStorage.getItem("datorii")) || [];
+        }
+      } else {
+        // Offline - use local storage
+        datorii = JSON.parse(localStorage.getItem("datorii")) || [];
+        document.getElementById("syncInfo").innerHTML = "";
+      }
+
       datorii.forEach((valoare) => {
         const entry = document.createElement("div");
         entry.className = "entry";
@@ -107,46 +188,136 @@
         list.appendChild(entry);
         total += valoare;
       });
-      document.getElementById("total").innerText = total;
+      
+      // Update combined total
+      updateCombinedTotal(total, totalCosturi);
     }
 
-    document.getElementById("amountInput").addEventListener("keypress", (e) => {
+    function updateSyncInfo(totalCosturi) {
+      const syncInfo = document.getElementById("syncInfo");
+      if (totalCosturi !== undefined) {
+        if (totalCosturi > 0) {
+          syncInfo.innerHTML = `<span class="sync-positive">+${totalCosturi} RON din costuri</span>`;
+        } else if (totalCosturi < 0) {
+          syncInfo.innerHTML = `<span class="sync-negative">${totalCosturi} RON din costuri</span>`;
+        } else {
+          syncInfo.innerHTML = `<span>0 RON din costuri</span>`;
+        }
+      }
+    }
+
+    function updateCombinedTotal(totalDatorii, totalCosturi) {
+      const totalCombined = totalDatorii + (totalCosturi || 0);
+      document.getElementById("total").innerText = totalCombined;
+    }
+
+    document.getElementById("amountInput").addEventListener("keypress", async (e) => {
       if (e.key === "Enter") {
         let inputValue = e.target.value.trim();
         let val;
         
-        // Verifică dacă începe cu punct (ex: .87)
         if (inputValue.startsWith('.') && inputValue.length > 1) {
-          // Convertește .87 în -87
           val = -parseFloat(inputValue.substring(1));
         } else {
           val = parseFloat(inputValue);
         }
         
         if (!isNaN(val) && val !== 0) {
-          datorii.push(val);
-          localStorage.setItem("datorii", JSON.stringify(datorii));
-          e.target.value = "";
-          updateUI();
-          hideKeyboard();
+          if (await checkConnection()) {
+            // Online - send to server
+            try {
+              const response = await fetch(`${API_BASE_URL}/datorii`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ valoare: val })
+              });
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              e.target.value = "";
+              await updateUI();
+              hideKeyboard();
+            } catch (error) {
+              console.error("Eroare la adăugarea datoriei:", error);
+              // Fallback to local storage
+              addToLocalStorage(val);
+              e.target.value = "";
+              updateUI();
+              hideKeyboard();
+            }
+          } else {
+            // Offline - save to local storage
+            addToLocalStorage(val);
+            e.target.value = "";
+            updateUI();
+            hideKeyboard();
+          }
         }
       }
     });
+
+    function addToLocalStorage(val) {
+      let localDatorii = JSON.parse(localStorage.getItem("datorii")) || [];
+      localDatorii.push(val);
+      localStorage.setItem("datorii", JSON.stringify(localDatorii));
+    }
 
     function hideKeyboard() {
       document.activeElement.blur();
     }
 
-    function resetAll() {
-      datorii = [];
-      localStorage.setItem("datorii", JSON.stringify(datorii));
-      updateUI();
+    async function resetAll() {
+      if (confirm("Ești sigur că vrei să resetezi toate datoriile?")) {
+        if (await checkConnection()) {
+          try {
+            const response = await fetch(`${API_BASE_URL}/datorii`, {
+              method: 'DELETE'
+            });
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            await updateUI();
+          } catch (error) {
+            console.error("Eroare la resetarea datoriilor:", error);
+            // Fallback to local storage
+            localStorage.setItem("datorii", JSON.stringify([]));
+            updateUI();
+          }
+        } else {
+          localStorage.setItem("datorii", JSON.stringify([]));
+          updateUI();
+        }
+      }
     }
 
-    function deleteLast() {
-      datorii.pop();
-      localStorage.setItem("datorii", JSON.stringify(datorii));
-      updateUI();
+    async function deleteLast() {
+      if (confirm("Ești sigur că vrei să ștergi ultima datorie?")) {
+        if (await checkConnection()) {
+          try {
+            const response = await fetch(`${API_BASE_URL}/datorii/last`, {
+              method: 'DELETE'
+            });
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            await updateUI();
+          } catch (error) {
+            console.error("Eroare la ștergerea ultimei datorii:", error);
+            // Fallback to local storage
+            let localDatorii = JSON.parse(localStorage.getItem("datorii")) || [];
+            localDatorii.pop();
+            localStorage.setItem("datorii", JSON.stringify(localDatorii));
+            updateUI();
+          }
+        } else {
+          let localDatorii = JSON.parse(localStorage.getItem("datorii")) || [];
+          localDatorii.pop();
+          localStorage.setItem("datorii", JSON.stringify(localDatorii));
+          updateUI();
+        }
+      }
     }
 
     function toggleMenu() {
@@ -154,10 +325,53 @@
       menu.style.display = menu.style.display === "block" ? "none" : "block";
     }
 
-    window.onload = () => {
-      updateUI();
+    // Sync local data to server when coming online
+    async function syncLocalToServer() {
+      if (!isOnline) return;
+      
+      const localDatorii = JSON.parse(localStorage.getItem("datorii")) || [];
+      if (localDatorii.length === 0) return;
+      
+      try {
+        // Get current server data
+        const response = await fetch(`${API_BASE_URL}/datorii`);
+        const serverDatorii = response.ok ? await response.json() : [];
+        
+        // Find items that are in local but not in server
+        for (const datorie of localDatorii) {
+          if (!serverDatorii.includes(datorie)) {
+            await fetch(`${API_BASE_URL}/datorii`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ valoare: datorie })
+            });
+          }
+        }
+        
+        // Clear local storage after successful sync
+        localStorage.setItem("datorii", JSON.stringify([]));
+      } catch (error) {
+        console.error("Eroare la sincronizare:", error);
+      }
+    }
+
+    window.onload = async () => {
+      await updateUI();
+      await syncLocalToServer();
       const input = document.getElementById("amountInput");
       setTimeout(() => input.focus(), 100);
+      
+      // Check connection every 30 seconds
+      setInterval(async () => {
+        const wasOnline = isOnline;
+        await checkConnection();
+        if (!wasOnline && isOnline) {
+          await syncLocalToServer();
+          await updateUI();
+        }
+      }, 30000);
     }
   </script>
 </body>
