@@ -118,27 +118,45 @@
   <div class="list" id="list"></div>
   <div class="status" id="status">Offline</div>
 
-  <script>
-    const API_BASE_URL = 'http://localhost:5001/api';
+  <script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, deleteDoc, doc, writeBatch } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js";
+
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDShS2WY7Ojy7H4_5dVEINXJdjiFdV38AQ",
+      authDomain: "datorii-75836.firebaseapp.com",
+      projectId: "datorii-75836",
+      storageBucket: "datorii-75836.firebasestorage.app",
+      messagingSenderId: "409613218855",
+      appId: "1:409613218855:web:860846fd76b29327a2ca02",
+      measurementId: "G-8062XCBTFT"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
     let datorii = [];
     let isOnline = false;
 
     async function checkConnection() {
       try {
-        const response = await fetch(`${API_BASE_URL}/totals`);
-        if (response.ok) {
-          isOnline = true;
-          document.getElementById('status').textContent = 'Online';
-          document.getElementById('status').className = 'status online';
-          return true;
-        }
+        // Try to fetch a small amount of data to check connection
+        const q = query(collection(db, "datorii"), orderBy("timestamp", "desc"));
+        await getDocs(q);
+        isOnline = true;
+        document.getElementById("status").textContent = "Online";
+        document.getElementById("status").className = "status online";
+        return true;
       } catch (error) {
-        console.log('Server offline, using local storage');
+        console.log("Firebase offline or error:", error);
       }
       
       isOnline = false;
-      document.getElementById('status').textContent = 'Offline';
-      document.getElementById('status').className = 'status offline';
+      document.getElementById("status").textContent = "Offline";
+      document.getElementById("status").className = "status offline";
       return false;
     }
 
@@ -149,26 +167,42 @@
       let totalCosturi = 0;
       
       if (await checkConnection()) {
-        // Online - get data from server
+        // Online - get data from Firestore
         try {
-          const response = await fetch(`${API_BASE_URL}/datorii`);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          const data = await response.json();
-          datorii = data;
+          const datoriiCol = collection(db, "datorii");
+          const datoriiSnapshot = await getDocs(query(datoriiCol, orderBy("timestamp", "asc")));
+          datorii = datoriiSnapshot.docs.map(doc => doc.data().valoare);
           
-          // Get sync info
-          const totalsResponse = await fetch(`${API_BASE_URL}/totals`);
-          if (totalsResponse.ok) {
-            const totalsData = await totalsResponse.json();
-            totalCosturi = totalsData.total_costuri;
-            updateSyncInfo(totalCosturi);
+          // Get total costuri from Firestore
+          const costuriCol = collection(db, "costuri");
+          const costuriSnapshot = await getDocs(costuriCol);
+          let currentCosturi = {};
+          costuriSnapshot.docs.forEach(doc => {
+            currentCosturi[doc.id] = doc.data().count;
+          });
+
+          const prices = {
+            canvaVideo: 40,
+            canvaTemplate: 20,
+            kahoot: 20,
+            manus: 35,
+            podcast: 200,
+            videoclip: 75,
+            trailer: 75,
+          };
+
+          for (const key in currentCosturi) {
+            if (prices[key]) {
+              totalCosturi += currentCosturi[key] * prices[key];
+            }
           }
+          updateSyncInfo(totalCosturi);
+
         } catch (error) {
-          console.error("Eroare la preluarea datoriilor:", error);
+          console.error("Eroare la preluarea datelor din Firestore:", error);
           // Fallback to local storage
           datorii = JSON.parse(localStorage.getItem("datorii")) || [];
+          document.getElementById("syncInfo").innerHTML = ""; // Clear sync info if offline
         }
       } else {
         // Offline - use local storage
@@ -216,7 +250,7 @@
         let inputValue = e.target.value.trim();
         let val;
         
-        if (inputValue.startsWith('.') && inputValue.length > 1) {
+        if (inputValue.startsWith(".") && inputValue.length > 1) {
           val = -parseFloat(inputValue.substring(1));
         } else {
           val = parseFloat(inputValue);
@@ -224,23 +258,17 @@
         
         if (!isNaN(val) && val !== 0) {
           if (await checkConnection()) {
-            // Online - send to server
+            // Online - send to Firestore
             try {
-              const response = await fetch(`${API_BASE_URL}/datorii`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ valoare: val })
+              await addDoc(collection(db, "datorii"), {
+                valoare: val,
+                timestamp: new Date()
               });
-              if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-              }
               e.target.value = "";
               await updateUI();
               hideKeyboard();
             } catch (error) {
-              console.error("Eroare la adăugarea datoriei:", error);
+              console.error("Eroare la adăugarea datoriei în Firestore:", error);
               // Fallback to local storage
               addToLocalStorage(val);
               e.target.value = "";
@@ -272,15 +300,15 @@
       if (confirm("Ești sigur că vrei să resetezi toate datoriile?")) {
         if (await checkConnection()) {
           try {
-            const response = await fetch(`${API_BASE_URL}/datorii`, {
-              method: 'DELETE'
+            const batch = writeBatch(db);
+            const querySnapshot = await getDocs(collection(db, "datorii"));
+            querySnapshot.docs.forEach((doc) => {
+              batch.delete(doc.ref);
             });
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            await batch.commit();
             await updateUI();
           } catch (error) {
-            console.error("Eroare la resetarea datoriilor:", error);
+            console.error("Eroare la resetarea datoriilor în Firestore:", error);
             // Fallback to local storage
             localStorage.setItem("datorii", JSON.stringify([]));
             updateUI();
@@ -296,15 +324,15 @@
       if (confirm("Ești sigur că vrei să ștergi ultima datorie?")) {
         if (await checkConnection()) {
           try {
-            const response = await fetch(`${API_BASE_URL}/datorii/last`, {
-              method: 'DELETE'
-            });
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+            const q = query(collection(db, "datorii"), orderBy("timestamp", "desc"));
+            const querySnapshot = await getDocs(q);
+            if (!querySnapshot.empty) {
+              const lastDoc = querySnapshot.docs[0];
+              await deleteDoc(doc(db, "datorii", lastDoc.id));
             }
             await updateUI();
           } catch (error) {
-            console.error("Eroare la ștergerea ultimei datorii:", error);
+            console.error("Eroare la ștergerea ultimei datorii din Firestore:", error);
             // Fallback to local storage
             let localDatorii = JSON.parse(localStorage.getItem("datorii")) || [];
             localDatorii.pop();
@@ -334,18 +362,17 @@
       
       try {
         // Get current server data
-        const response = await fetch(`${API_BASE_URL}/datorii`);
-        const serverDatorii = response.ok ? await response.json() : [];
+        const datoriiCol = collection(db, "datorii");
+        const datoriiSnapshot = await getDocs(datoriiCol);
+        const serverDatorii = datoriiSnapshot.docs.map(doc => doc.data().valoare);
         
         // Find items that are in local but not in server
         for (const datorie of localDatorii) {
+          // Simple check for existence, might need more robust deduplication for real apps
           if (!serverDatorii.includes(datorie)) {
-            await fetch(`${API_BASE_URL}/datorii`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ valoare: datorie })
+            await addDoc(collection(db, "datorii"), {
+              valoare: datorie,
+              timestamp: new Date()
             });
           }
         }
@@ -353,7 +380,7 @@
         // Clear local storage after successful sync
         localStorage.setItem("datorii", JSON.stringify([]));
       } catch (error) {
-        console.error("Eroare la sincronizare:", error);
+        console.error("Eroare la sincronizarea datelor locale cu Firestore:", error);
       }
     }
 
@@ -376,4 +403,3 @@
   </script>
 </body>
 </html>
-
