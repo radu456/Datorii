@@ -48,7 +48,7 @@
     .input-container {
       padding: 15px;
     }
-    input[type=number] {
+    input[type=text] {
       width: 100%;
       font-size: 24px;
       padding: 10px;
@@ -67,6 +67,11 @@
       padding: 10px;
       font-size: 18px;
     }
+    .entry.negative {
+      background: #ffebee;
+      border-color: #f44336;
+      color: #d32f2f;
+    }
   </style>
 </head>
 <body>
@@ -79,7 +84,7 @@
     <button onclick="deleteLast()">🗑️ Șterge ultima datorie</button>
   </div>
   <div class="input-container">
-    <input id="amountInput" type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Introdu suma datoriei" autofocus />
+    <input id="amountInput" type="text" inputmode="numeric" placeholder="Introdu suma datoriei" autofocus />
   </div>
   <div class="list" id="list"></div>
 
@@ -93,7 +98,12 @@
       datorii.forEach((valoare) => {
         const entry = document.createElement("div");
         entry.className = "entry";
-        entry.innerText = `${valoare} RON`;  // ✅ Doar suma, fără # și fără numerotare
+        if (valoare < 0) {
+          entry.classList.add("negative");
+          entry.innerText = `${valoare} RON`;
+        } else {
+          entry.innerText = `${valoare} RON`;
+        }
         list.appendChild(entry);
         total += valoare;
       });
@@ -102,8 +112,18 @@
 
     document.getElementById("amountInput").addEventListener("keypress", (e) => {
       if (e.key === "Enter") {
-        const val = parseFloat(e.target.value);
-        if (!isNaN(val) && val > 0) {
+        let inputValue = e.target.value.trim();
+        let val;
+        
+        // Verifică dacă începe cu punct (ex: .87)
+        if (inputValue.startsWith('.') && inputValue.length > 1) {
+          // Convertește .87 în -87
+          val = -parseFloat(inputValue.substring(1));
+        } else {
+          val = parseFloat(inputValue);
+        }
+        
+        if (!isNaN(val) && val !== 0) {
           datorii.push(val);
           localStorage.setItem("datorii", JSON.stringify(datorii));
           e.target.value = "";
